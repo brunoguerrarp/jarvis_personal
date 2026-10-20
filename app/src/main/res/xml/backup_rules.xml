@@ -1,0 +1,4 @@
+<?xml version="1.0" encoding="utf-8"?>
+<full-backup-content>
+    <!-- Nada sensível a persistir; a chave da API vive no app, não em backup. -->
+</full-backup-content>

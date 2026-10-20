@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Tema base. O visual real é definido no Compose (JarvisTheme);
+         aqui só garantimos uma splash/janela escura sem a ActionBar. -->
+    <style name="Theme.Jarvis" parent="android:Theme.Material.NoActionBar">
+        <item name="android:statusBarColor">@color/arc_blue_dark</item>
+        <item name="android:navigationBarColor">@color/arc_blue_dark</item>
+        <item name="android:windowBackground">@color/arc_blue_dark</item>
+    </style>
+</resources>

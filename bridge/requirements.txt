@@ -1,0 +1,4 @@
+paho-mqtt>=2.1,<3
+python-dotenv>=1.0
+# Confia na loja de certificados do Windows (proxy/antivírus que interceptam TLS).
+truststore>=0.9
