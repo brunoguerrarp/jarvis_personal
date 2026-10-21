@@ -6,6 +6,7 @@ import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.os.PowerManager
 import android.provider.Settings
 import android.widget.Toast
 import androidx.activity.ComponentActivity
@@ -78,6 +79,7 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
         // Avisos no celular sempre ativos: ponte MQTT em 2º plano (independe do microfone).
         BridgeService.start(this)
+        garantirIsencaoBateria()
         setContent {
             JarvisTheme {
                 Surface(
@@ -88,6 +90,26 @@ class MainActivity : ComponentActivity() {
                 }
             }
         }
+    }
+
+    /**
+     * Sem a isenção da otimização de bateria, o Android 15 encerra o BridgeService ao
+     * fechar o app e os avisos param de chegar. Pedimos a isenção **uma vez** (diálogo
+     * do sistema); se já estiver isento, não incomoda.
+     */
+    private fun garantirIsencaoBateria() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M) return
+        val pm = getSystemService(PowerManager::class.java)
+        if (pm?.isIgnoringBatteryOptimizations(packageName) == true) return
+        val prefs = getSharedPreferences("jarvis", MODE_PRIVATE)
+        if (prefs.getBoolean("pediu_bateria", false)) return
+        prefs.edit().putBoolean("pediu_bateria", true).apply()
+        try {
+            startActivity(
+                Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS)
+                    .setData(Uri.parse("package:$packageName")),
+            )
+        } catch (_: Exception) {}
     }
 
     override fun onResume() {

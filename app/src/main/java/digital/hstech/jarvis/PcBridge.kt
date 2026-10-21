@@ -32,6 +32,10 @@ class PcBridge(
     private val tls: Boolean,
     private val token: String,
     private val prefix: String,
+    // clientId estável + cleanSession=false -> o broker guarda os avisos QoS1 enquanto
+    // o celular fica off (repouso/Doze) e os entrega ao reconectar (nada se perde).
+    private val clientId: String = "jarvis-phone-" + UUID.randomUUID().toString().take(8),
+    private val cleanSession: Boolean = true,
 ) {
     private val topicRequests = "$prefix/requests"
     private val topicConfirm = "$prefix/confirm"
@@ -60,7 +64,7 @@ class PcBridge(
         try {
             val c = MqttAsyncClient(
                 serverUri(),
-                "jarvis-phone-" + UUID.randomUUID().toString().take(8),
+                clientId,
                 MemoryPersistence(),
             )
             client = c
@@ -93,7 +97,7 @@ class PcBridge(
             val opts = MqttConnectOptions().apply {
                 userName = token // flespi: token no usuário, senha vazia
                 isAutomaticReconnect = true
-                isCleanSession = true
+                isCleanSession = cleanSession
                 connectionTimeout = 20
                 keepAliveInterval = 45
             }

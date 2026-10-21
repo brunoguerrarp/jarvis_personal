@@ -50,6 +50,9 @@ class BridgeService : Service() {
             tls = BuildConfig.MQTT_TLS,
             token = BuildConfig.MQTT_TOKEN,
             prefix = BuildConfig.MQTT_PREFIX,
+            // Sessão estável e persistente: não perde avisos durante repouso/Doze.
+            clientId = "jarvis-phone-bridge",
+            cleanSession = false,
         )
         if (b.configured) {
             b.onReply = { reply -> avisar(reply) }

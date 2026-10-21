@@ -15,6 +15,8 @@
     <!-- Religar o serviço de avisos após o celular reiniciar. -->
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <!-- Pedir isenção da otimização de bateria p/ a ponte não ser morta pelo sistema. -->
+    <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
 
     <!-- Comandos de aparelho: localizar/abrir outros apps pelo nome falado. -->
     <uses-permission android:name="android.permission.QUERY_ALL_PACKAGES" />
