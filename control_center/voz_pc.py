@@ -18,6 +18,8 @@ from __future__ import annotations
 import json
 import os
 import queue
+import subprocess
+import tempfile
 import threading
 from pathlib import Path
 from typing import Callable, Optional
@@ -40,9 +42,23 @@ try:
 except Exception:  # noqa: BLE001
     _TTS_OK = False
 
+try:
+    import winsound  # stdlib (Windows): toca o WAV do Piper, com SND_PURGE p/ parar
+
+    _WINSOUND = True
+except Exception:  # noqa: BLE001
+    _WINSOUND = False
+
 TAXA = 16000          # Hz exigidos pelo modelo Vosk
 BLOCO = 4000          # amostras por leitura (~0,25 s)
 SILENCIO_FIM = 1.2    # s de silêncio após fala para encerrar sozinho
+
+# Voz MASCULINA local (Piper, offline): preferida sobre o SAPI (Maria, feminina).
+_DIR = Path(__file__).resolve().parent
+PIPER_EXE = _DIR / "piper" / "piper.exe"
+PIPER_VOICE = _DIR / "piper" / "pt_BR-faber-medium.onnx"
+_PIPER_OK = _WINSOUND and PIPER_EXE.exists() and PIPER_VOICE.exists()
+PIPER_RATE = "1.0"    # comprimento (1.0 normal; >1 mais devagar)
 
 
 class VozPC:
@@ -64,10 +80,12 @@ class VozPC:
         self._ouvindo = False
         self._falando = threading.Event()
         self._eng_atual = None  # engine pyttsx3 em uso (p/ interromper)
+        self._piper_proc: Optional[subprocess.Popen] = None  # piper em geração
         self._thread_ouvir: Optional[threading.Thread] = None
 
         self.stt_ok = _STT_OK and self.model_path.exists()
-        self.tts_ok = _TTS_OK
+        self.piper_ok = _PIPER_OK                 # voz masculina local
+        self.tts_ok = _TTS_OK or self.piper_ok    # qualquer motor de fala
         if self.stt_ok:
             threading.Thread(target=self._carregar_modelo, daemon=True).start()
 
@@ -170,7 +188,7 @@ class VozPC:
         if self.on_final:
             self.on_final(texto)
 
-    # ----- FALAR (SAPI) ----------------------------------------------------- #
+    # ----- FALAR (Piper masculino, c/ SAPI de reserva) ---------------------- #
     def falar(self, texto: str, ao_terminar: Optional[Callable[[], None]] = None) -> None:
         """Fala o texto em voz alta (thread própria). Interrompe uma fala anterior."""
         if not self.tts_ok or not (texto or "").strip():
@@ -178,11 +196,50 @@ class VozPC:
                 ao_terminar()
             return
         self.parar_fala()
-        threading.Thread(
-            target=self._falar_blocking, args=(texto, ao_terminar), daemon=True,
-        ).start()
+        alvo = self._falar_piper if self.piper_ok else self._falar_sapi
+        threading.Thread(target=alvo, args=(texto, ao_terminar), daemon=True).start()
 
-    def _falar_blocking(self, texto: str, ao_terminar: Optional[Callable[[], None]]) -> None:
+    def _falar_piper(self, texto: str, ao_terminar: Optional[Callable[[], None]]) -> None:
+        """Voz masculina 'faber' (Piper, offline): gera um WAV e toca com winsound."""
+        self._falando.set()
+        self._emit("falando")
+        wav: Optional[str] = None
+        try:
+            fd, wav = tempfile.mkstemp(suffix=".wav", prefix="jarvis_tts_")
+            os.close(fd)
+            proc = subprocess.Popen(
+                [str(PIPER_EXE), "-m", str(PIPER_VOICE),
+                 "-f", wav, "--length_scale", PIPER_RATE],
+                stdin=subprocess.PIPE,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                cwd=str(PIPER_EXE.parent),
+                creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+            )
+            self._piper_proc = proc
+            proc.communicate(input=(texto + "\n").encode("utf-8"))
+            self._piper_proc = None
+            # Só toca se não foi interrompido e o WAV saiu válido (>cabeçalho).
+            if self._falando.is_set() and os.path.exists(wav) and os.path.getsize(wav) > 44:
+                winsound.PlaySound(wav, winsound.SND_FILENAME)
+        except Exception as e:  # noqa: BLE001
+            self._emit(f"erro:tts:{e}")
+        finally:
+            self._piper_proc = None
+            self._falando.clear()
+            self._emit("fim_fala")
+            if wav:
+                try:
+                    os.remove(wav)
+                except Exception:  # noqa: BLE001
+                    pass
+            if ao_terminar:
+                try:
+                    ao_terminar()
+                except Exception:  # noqa: BLE001
+                    pass
+
+    def _falar_sapi(self, texto: str, ao_terminar: Optional[Callable[[], None]]) -> None:
         self._falando.set()
         self._emit("falando")
         try:
@@ -219,6 +276,20 @@ class VozPC:
             pass
 
     def parar_fala(self) -> None:
+        # Sinaliza interrupção e corta o áudio do Piper (se tocando).
+        falava = self._falando.is_set()
+        self._falando.clear()
+        if _WINSOUND and falava:
+            try:
+                winsound.PlaySound(None, winsound.SND_PURGE)
+            except Exception:  # noqa: BLE001
+                pass
+        proc = self._piper_proc
+        if proc is not None:
+            try:
+                proc.kill()
+            except Exception:  # noqa: BLE001
+                pass
         eng = self._eng_atual
         if eng is not None:
             try:
