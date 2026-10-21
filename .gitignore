@@ -44,3 +44,11 @@ __pycache__/
 .venv/
 venv/
 .kotlin/
+bridge/logs/
+
+### Claude Code (config local da máquina) ###
+.claude/settings.local.json
+
+### Voz masculina Piper (binário + modelo ~98MB, baixados — não versionar) ###
+control_center/piper/
+control_center/piper_dl/
