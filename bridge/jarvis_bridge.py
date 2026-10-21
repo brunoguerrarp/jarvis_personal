@@ -76,6 +76,7 @@ class Config:
     plan_timeout: int
     exec_timeout: int
     exec_permission_mode: str
+    extra_dirs: tuple[Path, ...]  # pastas fora do workspace que o Claude pode ler
 
     @property
     def topic_requests(self) -> str:
@@ -105,6 +106,18 @@ def carregar_config() -> Config:
 
     raiz = Path(os.getenv("WORKSPACE_ROOT", str(Path.cwd().parent))).expanduser().resolve()
 
+    # Pastas EXTRA que o Claude pode ler (fora do workspace), separadas por ";" ou ",".
+    # Padrão: o OpenJarvis, para perguntas sobre aquele projeto. Só entram as que existem.
+    extra_raw = os.getenv("EXTRA_DIRS", r"X:\Intelij_WorkSpace\OpenJarvis")
+    extras: list[Path] = []
+    for parte in re.split(r"[;,]", extra_raw):
+        parte = parte.strip()
+        if not parte:
+            continue
+        d = Path(parte).expanduser().resolve()
+        if d.is_dir() and d not in extras and d != raiz:
+            extras.append(d)
+
     return Config(
         host=host,
         port=port,
@@ -121,7 +134,16 @@ def carregar_config() -> Config:
         # shell sem permissão (mais seguro). Para autonomia total (build/testes),
         # troque para "bypassPermissions" — ciente do risco.
         exec_permission_mode=os.getenv("CLAUDE_EXEC_PERMISSION_MODE", "acceptEdits"),
+        extra_dirs=tuple(extras),
     )
+
+
+def _dirs_add(cfg: Config) -> list[str]:
+    """Args --add-dir: o workspace + as pastas extras (ex.: OpenJarvis) p/ o Claude ler."""
+    args: list[str] = ["--add-dir", str(cfg.workspace_root)]
+    for d in cfg.extra_dirs:
+        args += ["--add-dir", str(d)]
+    return args
 
 
 # --------------------------------------------------------------------------- #
@@ -242,7 +264,7 @@ def planejar(cfg: Config, texto: str, projeto_dir: Path) -> ClaudeResult:
         "--output-format", "json",
         "--permission-mode", "plan",
         "--allowedTools", "Read,Grep,Glob",
-        "--add-dir", str(cfg.workspace_root),
+        *_dirs_add(cfg),
     ]
     return _rodar_claude(cmd, projeto_dir, cfg.plan_timeout)
 
@@ -256,7 +278,7 @@ def conversar(cfg: Config, texto: str, projeto_dir: Path) -> ClaudeResult:
         "--output-format", "json",
         "--permission-mode", "plan",
         "--allowedTools", "Read,Grep,Glob",
-        "--add-dir", str(cfg.workspace_root),
+        *_dirs_add(cfg),
     ]
     return _rodar_claude(cmd, projeto_dir, cfg.plan_timeout)
 
@@ -269,7 +291,7 @@ def executar(cfg: Config, session_id: str, projeto_dir: Path) -> ClaudeResult:
         "-p", EXEC_PROMPT,
         "--output-format", "json",
         "--permission-mode", cfg.exec_permission_mode,
-        "--add-dir", str(cfg.workspace_root),
+        *_dirs_add(cfg),
     ]
     return _rodar_claude(cmd, projeto_dir, cfg.exec_timeout)
 
@@ -305,10 +327,11 @@ def resolver_projeto(cfg: Config, nome: str | None, criar_novo: bool) -> tuple[P
         alvo.mkdir(parents=True, exist_ok=True)
         log.info("Projeto novo criado: %s", alvo)
         return alvo, None
-    return cfg.workspace_root, (
-        f"Não achei o projeto '{slug}' no workspace. Diga 'inicia um projeto {slug}' "
-        "para eu criá-lo."
-    )
+    # Projeto não encontrado e não é criação: em vez de BLOQUEAR o pedido (o que
+    # travava perguntas por uma palavra solta, ex. "projeto do OpenJarvis"), trabalha
+    # na raiz do workspace e responde assim mesmo. Criação continua via flag `new`.
+    log.info("Projeto '%s' não existe; usando a raiz do workspace.", slug)
+    return cfg.workspace_root, None
 
 
 # --------------------------------------------------------------------------- #

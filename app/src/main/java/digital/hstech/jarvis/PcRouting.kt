@@ -33,6 +33,12 @@ object PcRouting {
         "nao", "cancela", "cancelar", "negativo", "esquece", "deixa pra la",
     )
 
+    // Artigos/preposições que NÃO são nome de projeto (evita "projeto do X" -> "do").
+    private val STOPWORDS_PROJETO = setOf(
+        "do", "da", "de", "dos", "das", "no", "na", "nos", "nas",
+        "o", "a", "os", "as", "um", "uma", "meu", "minha", "projeto",
+    )
+
     fun normalizar(s: String): String =
         Normalizer.normalize(s.lowercase(), Normalizer.Form.NFD)
             .replace(Regex("\\p{M}+"), "")
@@ -57,8 +63,14 @@ object PcRouting {
         // (senao "jarvis_personal" viraria "jarvis personal" e so pegaria "jarvis").
         val base = Normalizer.normalize(comando.lowercase(), Normalizer.Form.NFD)
             .replace(Regex("\\p{M}+"), "")
+        // "projeto do OpenJarvis" / "projeto da casa" -> pula artigos/preposições
+        // (do, da, de, no, na, o, a, um, uma, meu, minha) e pega o nome real.
         val projeto =
-            Regex("projeto\\s+([a-z0-9][\\w-]*)").find(base)?.groupValues?.get(1)
+            Regex(
+                "projeto\\s+(?:(?:do|da|de|dos|das|no|na|nos|nas|o|a|os|as|um|uma|meu|minha)\\s+)*" +
+                    "([a-z0-9][\\w-]*)",
+            ).find(base)?.groupValues?.get(1)
+                ?.takeUnless { it in STOPWORDS_PROJETO }
                 ?: Regex("\\b([a-z0-9]+(?:[_-][a-z0-9]+)+)\\b").find(base)?.groupValues?.get(1)
         return PedidoPc(projeto, novo, comando)
     }
